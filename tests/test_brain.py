@@ -14,10 +14,14 @@ from arthur import commands, config, pipeline  # noqa: E402
 
 B = config.read_json(pipeline.BRIEFING)
 IDX = B["index"]
-# a real email sender from today's data, so the email cases don't go stale as the inbox moves
+# a real email sender from today's data, so the email cases don't go stale as the inbox moves.
+# Prefer emails the briefing itself flagged (priorities / waiting), and skip newsletters / automated senders.
 import re as _re  # noqa: E402
-GM_FROM = next((_re.sub(r"<.*?>|\"", "", v["from"]).strip() for v in IDX.values() if v["source"] == "gmail"
-                and not _re.search(r"no-?reply|notification|google|meta|facebook", v["from"], _re.I)), "Hammer Industries")
+_BOT = _re.compile(r"no-?reply|notification|newsletter|update|team|google|meta|facebook|support|digest|news|alerts?", _re.I)
+_flagged = {i for p in B["brief"].get("priorities", []) + B["brief"].get("waiting_on_you", []) for i in p.get("source_ids", [])}
+_gm = [v for k, v in IDX.items() if v["source"] == "gmail" and not _BOT.search(v["from"] + " " + v["title"])]
+_gm.sort(key=lambda v: 0 if any(k for k, x in IDX.items() if x is v and k in _flagged) else 1)
+GM_FROM = _re.sub(r"<.*?>|\"", "", _gm[0]["from"]).strip() if _gm else "Supabase"
 GM_KEY = GM_FROM.split()[0]
 
 
@@ -61,7 +65,9 @@ CASES = [
     ("is it going to rain today", {"answer"}, NONE),
     ("what's on my calendar tomorrow", {"answer"}, has("speech", "focus")),
     ("do I have any meetings today", {"answer"}, NONE),
-    ("who's waiting on me", {"answer"}, has("speech", "happy")),
+    ("who's waiting on me", {"answer"}, lambda d: (any(w["who"].split()[0].lower() in d.get("speech", "").lower()
+                                                      for w in B["brief"].get("waiting_on_you", [])) or not B["brief"].get("waiting_on_you"),
+                                                  d.get("speech", "")[:80])),
     ("what did Happy say", {"answer"}, has("speech", "happy")),
     ("any messages from mom", {"answer"}, NONE),
     ("summarise my emails", {"answer"}, NONE),

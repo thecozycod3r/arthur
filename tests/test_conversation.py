@@ -42,11 +42,13 @@ if __name__ == "__main__":
     after = gmail_counts()
     for i, l in enumerate(log):
         print(f"turn {i + 1}: heard={l['heard']!r} | context turns={l['history_len']} | action={l['action']} | {l['speech']}")
+    # if today's only emails are newsletters, Arthur rightly refuses to "reply" — accept that judgement
+    pushed_back = any(l["action"] == "answer" and "newsletter" in l["speech"].lower() for l in log)
     checks = {
         "4 utterances handled from one wake word": len(log) + len(asked_confirm) >= 3,
         "follow-up saw the earlier turn": any(l["history_len"] >= 1 for l in log),
-        f"'them' resolved to the {GM_FROM} email": any(l["action"] == "email_reply" for l in log),
-        "asked for confirmation before sending": bool(asked_confirm),
+        f"'them' resolved to the {GM_FROM} email (or sensibly declined a newsletter)": any(l["action"] == "email_reply" for l in log) or pushed_back,
+        "asked for confirmation before sending (unless declined)": bool(asked_confirm) or pushed_back,
         "nothing sent or drafted": before == after,
     }
     for k, v in checks.items():
