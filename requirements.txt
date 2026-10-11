@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+requests
+google-auth
+google-auth-oauthlib
+numpy
+soundfile
+sounddevice
+vosk
+faster-whisper
+mlx-whisper
+kokoro-onnx
+sherpa-onnx
+pynput
+rumps
+pyobjc-framework-ApplicationServices

@@ -1,0 +1,13 @@
+# personal data — never committed
+config.json
+secrets/
+data/
+logs/
+# large local models / runtime (downloaded by setup)
+models/
+runtime/
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+tests/results_*.json
