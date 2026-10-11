@@ -204,6 +204,14 @@ def main():
         out = pipeline.safe_run()
         if out:
             print(out["brief"]["headline"])
+    elif cmd == "ttsd":  # voice helper process: one JSON request per line in, one wav path per line out
+        import json as _j
+        from . import voice
+        for line in sys.stdin:
+            try:
+                print(_j.dumps({"path": str(voice.render(_j.loads(line)["text"]))}), flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(_j.dumps({"error": str(e)[:200]}), flush=True)
     elif cmd == "tts":  # render stdin to a wav, print its path (used so the voice model doesn't stay in RAM)
         from . import voice
         text = sys.stdin.read().strip()

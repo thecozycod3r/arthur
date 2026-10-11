@@ -115,6 +115,11 @@ acc_ot = sum(e.voice_ok(a, "test") for a in others)
 check("voiceprint accepts you (≥85%)", acc_me >= 0.85 * len(mine), f"{acc_me}/{len(mine)}")
 check("voiceprint rejects other voices (≤10%)", acc_ot <= 0.1 * len(others), f"{acc_ot}/{len(others)}")
 
+# ---------- 6b. one-word spoken answers must survive transcription (regression: "Yes." was once dropped) ----------
+for phrase, want in [("Yes.", "yes"), ("Yes, send it.", "yes"), ("No.", "no"), ("Keep it as a draft.", "draft")]:
+    heard = e.transcribe(T.load16(T.say_clip(phrase, "Daniel", 21500 + len(phrase))))
+    check(f"spoken {phrase!r} -> {want}", ears.classify_answer(heard) == want, f"heard {heard!r}")
+
 # ---------- 7. done means done ----------
 now = datetime.now().astimezone()
 h = {"x": (now - timedelta(hours=2)).isoformat()}

@@ -52,14 +52,80 @@ _last_used = 0.0
 IDLE_UNLOAD_S = 600
 
 
+class _Worker:
+    """Kokoro lives in a helper process. Killing it after 10 idle minutes returns the ~400 MB to macOS
+    (an in-process unload doesn't: Python/ONNX keep the freed memory reserved)."""
+
+    def __init__(self):
+        import sys
+        import threading
+        self.p = subprocess.Popen([sys.executable, "-m", "arthur", "ttsd"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                  stderr=subprocess.DEVNULL, text=True, cwd=str(config.ROOT), bufsize=1)
+        self.lock = threading.Lock()
+
+    def render(self, text: str) -> Path:
+        import json as _j
+        with self.lock:
+            self.p.stdin.write(_j.dumps({"text": text}) + "\n")
+            self.p.stdin.flush()
+            line = self.p.stdout.readline()
+        if not line:
+            raise RuntimeError("tts worker died")
+        r = _j.loads(line)
+        if "error" in r:
+            raise RuntimeError(r["error"])
+        return Path(r["path"])
+
+    def alive(self) -> bool:
+        return self.p.poll() is None
+
+    def stop(self):
+        if self.alive():
+            self.p.kill()
+
+
+_worker = None
+
+
+def warm() -> None:
+    """Start the voice helper ahead of time (called when you start talking to Arthur)."""
+    global _worker, _last_used
+    import time
+    _last_used = time.time()
+    if _worker is None or not _worker.alive():
+        _worker = _Worker()
+
+
+def render_via_worker(text: str) -> Path:
+    """Used by the server: cached wavs return instantly; otherwise the helper process renders."""
+    global _worker, _last_used
+    import time
+    _last_used = time.time()
+    cached = _cache_path(text)
+    if cached.exists():
+        return cached
+    if _worker is None or not _worker.alive():
+        _worker = _Worker()
+    return _worker.render(text)
+
+
 def unload_if_idle():
     """Free the ~300 MB voice model after 10 idle minutes (called periodically by the server)."""
     global _kokoro
     import gc
     import time
+    global _worker
+    idle_s = float(config.load().get("voice_idle_minutes", IDLE_UNLOAD_S / 60)) * 60
+    if _worker is not None and _worker.alive() and time.time() - _last_used > idle_s:
+        _worker.stop()
+        _worker = None
+        import logging
+        logging.getLogger("arthur").info("voice helper stopped after %.1f idle minutes (memory returned)", idle_s / 60)
     if _kokoro is not None and time.time() - _last_used > IDLE_UNLOAD_S:
         _kokoro = None
         gc.collect()
+        import logging
+        logging.getLogger("arthur").info("voice model unloaded after %d idle minutes", IDLE_UNLOAD_S // 60)
 
 
 def _engine():
@@ -70,6 +136,13 @@ def _engine():
         from kokoro_onnx import Kokoro
         _kokoro = Kokoro(str(MODELS / "kokoro-v1.0.onnx"), str(MODELS / "voices-v1.0.bin"))
     return _kokoro
+
+
+def _cache_path(text: str) -> Path:
+    cfg = config.load()
+    voice, fx, speed = cfg.get("kokoro_voice", "bm_george"), cfg.get("voice_fx", "jarvis"), cfg.get("voice_speed", 1.0)
+    intensity = cfg.get("voice_fx_intensity", 1.0)
+    return CACHE / (hashlib.sha1(f"{voice}|{fx}|{intensity}|{speed}|{text}".encode()).hexdigest()[:16] + ".wav")
 
 
 def render(text: str, voice: str | None = None, fx: str | None = None, speed: float | None = None,
@@ -167,7 +240,7 @@ class SpeechJob:
             if s == "END":
                 break
             try:
-                self.ready.put(render(s))
+                self.ready.put(render_via_worker(s))
             except Exception:  # noqa: BLE001
                 self.ready.put(None)
         self.ready.put("END")
@@ -206,7 +279,6 @@ class SpeechJob:
 def speak(text: str, stream: bool = False, after=None):
     """Start speaking (streamed); queued after `after` if given. Returns (job, estimated seconds)."""
     try:
-        _engine()
         job = SpeechJob(text, stream=stream, after=after)
         return job, job.duration
     except Exception:  # noqa: BLE001 — never go silent at 08:30

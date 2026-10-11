@@ -453,6 +453,12 @@ def confirm(body: Answer):
     return {"ok": True}
 
 
+@app.post("/api/warm")
+def warm():
+    voice.warm()
+    return {"ok": True}
+
+
 @app.post("/api/listen")
 def listen():
     (config.DATA / "ears_wake").touch()

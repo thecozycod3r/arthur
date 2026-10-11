@@ -9,6 +9,7 @@ import logging
 import queue
 import re
 import subprocess
+import threading
 import time
 
 import numpy as np
@@ -251,7 +252,7 @@ class Ears:
             segs, _ = self.whisper.transcribe(audio.astype(np.float32) / 32768.0, language="en", beam_size=1,
                                               vad_filter=True, initial_prompt=vocabulary())
             text = " ".join(s.text.strip() for s in segs).strip()
-        if re.fullmatch(r"\W*(thank you|thanks for watching|you)\W*", text, re.I) or len(re.findall(r"[A-Za-z]{2,}", text)) < 2:
+        if re.fullmatch(r"\W*(thank you|thanks for watching|you)\W*", text, re.I) or not re.search(r"[A-Za-z]{2,}", text):
             text = ""  # whisper's hallucinations on near-silence, or no real words ("!", "...")
         text = correct(text)
         return re.sub(rf"^\W*(hey\W+)?{re.escape(self.phrase.split()[-1])}\W*", "", text, flags=re.I).strip()
@@ -286,6 +287,7 @@ class Ears:
             self.post("/api/stop")  # "Hey Arthur" / the talk key interrupts him
         subprocess.Popen(["/usr/bin/afplay", CHIME])
         hearing.preload_turbo()  # loads on the GPU while you're still talking
+        threading.Thread(target=lambda: self.post("/api/warm"), daemon=True).start()  # and the voice, in parallel
         state("listening")
         if ptt:
             self._drain()

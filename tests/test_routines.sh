@@ -7,7 +7,7 @@ speaking(){ curl -s -H "X-Arthur-Token: $T" localhost:8730/api/speaking | grep -
 for job in ${@:-morning evening}; do
   post com.apple.screenIsLocked
   M0=$(stat -f %m data/briefing.json); E0=$(stat -f %m data/evening.json 2>/dev/null || echo 0)
-  (.venv/bin/python -m arthur $job > /tmp/arthur_$job.log 2>&1 &)
+  launchctl kickstart gui/$(id -u)/com.arthur.$job   # the real scheduled job, with its real permissions
   for i in $(seq 1 100); do sleep 3; [ $(stat -f %m data/briefing.json) -gt $M0 ] && { [ $job = morning ] || [ $(stat -f %m data/evening.json 2>/dev/null || echo 0) -gt $E0 ]; } && break; done
   sleep 6; silent=$(speaking && echo no || echo yes)
   post com.apple.screenIsUnlocked
