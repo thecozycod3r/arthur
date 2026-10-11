@@ -382,14 +382,22 @@ class Ears:
         state("thinking", heard)
         import concurrent.futures as cf
         streamer = Streamer(self)
-        with cf.ThreadPoolExecutor(1) as ex:
-            fut = ex.submit(commands.decide, heard, streamer.feed, history, followup)
+        ex = cf.ThreadPoolExecutor(2)
+        fut = ex.submit(commands.decide, heard, streamer.feed, history, followup)
+        try:
+            d = fut.result(timeout=3.0)
+        except cf.TimeoutError:
+            if not streamer.started:  # filler: spoken, but not part of his answer in the transcript
+                self.post("/api/speak", {"text": "One moment, sir."})
             try:
-                d = fut.result(timeout=3.0)
+                d = fut.result(timeout=6.0)
             except cf.TimeoutError:
-                if not streamer.started:  # filler: spoken, but not part of his answer in the transcript
-                    self.post("/api/speak", {"text": "One moment, sir."})
-                d = fut.result()
+                # hedge: Claude is having a slow moment — ask again in parallel and take whichever answers first
+                log.info("decide slow (>9s), hedging with a second request")
+                hedge = ex.submit(commands.decide, heard, None, history, followup)
+                done_, _ = cf.wait([fut, hedge], return_when=cf.FIRST_COMPLETED, timeout=80)
+                d = (done_.pop() if done_ else fut).result()
+        ex.shutdown(wait=False, cancel_futures=True)
         streamer.close(d)
         log.info("decided: %s", {k: d.get(k) for k in ("action", "source_ids")})
         act, speech = d.get("action"), d.get("speech", "")

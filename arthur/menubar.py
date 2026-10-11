@@ -108,7 +108,7 @@ class Menu(rumps.App):
             rumps.MenuItem("Hold right ⌥ to talk", callback=None),
         ]
 
-    @rumps.timer(1)
+    @rumps.timer(2)  # every 2 s is plenty for a status icon, and halves its CPU
     def tick(self, _):
         s = current_state()
         u = usage()

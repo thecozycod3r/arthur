@@ -61,8 +61,8 @@ def cmd_serve(cfg):
 
 
 def cmd_morning(cfg):
-    from . import pipeline
-    from .server import say
+    """08:30: scan everything, then — once you're at the Mac (unlocked) — open the HUD and brief you."""
+    from . import pipeline, voice
 
     if not server_up(cfg):
         subprocess.run(["launchctl", "kickstart", f"gui/{os.getuid()}/{LABEL_SERVER}"], check=False)
@@ -71,17 +71,23 @@ def cmd_morning(cfg):
                 break
             time.sleep(0.5)
     pipeline.set_status("scanning", "Morning protocol initiated")
-    open_hud(cfg, boot=True)
     out = pipeline.safe_run()
-    time.sleep(2)  # let the HUD paint the fresh briefing before the voice starts
+    locked, t0 = config.DATA / "screen_locked", time.time()
+    while locked.exists() and time.time() - t0 < 3 * 3600:  # don't brief an empty room: wait until you unlock
+        time.sleep(15)
+    if locked.exists():
+        log.info("morning briefing not spoken: Mac stayed locked (it's on the dashboard)")
+        os._exit(0)
+    open_hud(cfg, boot=True)
+    time.sleep(4)  # let the HUD boot and paint the fresh briefing before the voice starts
     text = out["brief"]["spoken_briefing"] if out else (
         f"Good morning, {cfg['user_name']}. I ran into trouble compiling today's briefing. Check the logs.")
     # speak through the server so the HUD's transcript and reactor follow the voice
     import requests
     try:
-        requests.post(url(cfg) + "/api/speak", json={"text": text}, headers=config.api_headers(), timeout=5)
+        requests.post(url(cfg) + "/api/speak", json={"text": text}, headers=config.api_headers(), timeout=30)
     except requests.RequestException:
-        say(text).wait()
+        voice.speak(text)[0].wait()
     (config.DATA / "ears_wake").touch()  # listen for 10 minutes so you can respond to the briefing
     os._exit(0)  # don't wait on a collector thread still parked on a privacy prompt
 

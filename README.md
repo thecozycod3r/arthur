@@ -14,7 +14,8 @@ the only cloud call is the reasoning, done through the Claude Code CLI on an exi
 
 **Every morning (08:30) and evening (22:00)** Arthur scans Gmail, Google Calendar, Slack, WhatsApp, iMessage, Drive
 and the weather, decides what actually matters, opens the dashboard and reads you a 60-second briefing in a
-JARVIS-like voice. The evening wrap-up covers what got done, what's still waiting, and tomorrow.
+JARVIS-like voice — but only once you're actually at the Mac: if it's locked, he scans and waits for you to unlock
+rather than talking to an empty room. The evening wrap-up covers what got done, what's still waiting, and tomorrow.
 
 **Any time**, say **"Hey Arthur…"**, hold **right ⌥**, or type into the dashboard:
 
@@ -59,7 +60,10 @@ first one", "yes", "hold on", "say that again"), ignores TV chatter, and remembe
   saved under odd names, and "which one?" when several people match.
 - **Done means done.** Ticking something off hides it until *new* activity arrives in that thread; the briefing is
   told what you've handled so it doesn't resurface the same topic from another message.
-- **Typed commands with on-screen approval** — same brain and actions as voice, approved with buttons.
+- **Typed commands with on-screen approval** — same brain and actions as voice, approved with buttons
+  (press `/` to type, `?` for shortcuts).
+- **Hedged requests** — if the model is slow (>9 s) a second identical request races the first; a 30 s stall becomes
+  a ~10 s answer. Typical command: **3.6 s median, 5.0 s p90** from end of speech to decision.
 - **Menu-bar status** — asleep / listening / thinking / speaking, plus how much of your Claude session is used and
   when it resets (read for free from the CLI's rate-limit events).
 
@@ -124,15 +128,16 @@ counts are compared before and after).
 | Conversation | multi-turn with pronoun resolution and a declined send | **5 / 5** |
 | Resilience | crashed source, hung source (timeout), Claude down (fallback briefing), concurrent rescans, timers across a server restart | **7 / 7** |
 | Sleep mode | mic closed when asleep, opens on request, closes after the window | **3 / 3** |
-| Dashboard | rendering, reply boxes, tick → Done → undo, shortcuts, no overflow at 1600/1280/900/400 px | **pass, 0 JS errors** |
+| Dashboard | rendering, reply boxes, tick → Done → undo (tasks and people waiting), shortcuts overlay, no overflow at 1600/1280/900/400 px | **pass, 0 JS errors** |
 | Dashboard edge cases | fresh install, server down, **XSS payloads in messages**, a 60-task day | **4 / 4 clean** |
 | Typed commands | real browser: ask → answer, approval card → cancel | **pass** |
+| Routines | morning / evening jobs: scan while locked, stay silent, brief after unlock (`tests/test_routines.sh`) | **pass** |
 | Ears | wake word on 10 synthetic voices (+ noise), look-alike phrases, transcription WER, yes/no parsing | **80/80 recall · 4.5 % WER · 23/23** |
 
 Bugs these tests caught and fixed along the way: a fallback briefing crash on messages with no text, a blind
 `Return` keystroke that could land in another app, a whisper "double-check" that rejected the owner's real voice
 (it heard "Arthur" as "otto"), a silence gate clipping the start of the wake word, speech cutting itself off, and a
-stale macOS lock flag.
+stale macOS lock flag, a dashboard list that redrew under the cursor, and a background job that could fire a timer twice.
 
 ---
 

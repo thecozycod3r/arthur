@@ -171,6 +171,9 @@ a.src:hover{color:var(--cyan)}
 .wait{display:flex;flex-direction:column}
 .who{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:8px 0;border-bottom:1px solid var(--line-soft);text-decoration:none}
 .who:last-child{border-bottom:0}
+.wactions{display:flex;gap:8px;align-items:center;margin:-2px 0 8px}
+.wdone{font-size:12px;color:var(--mute);border:1px solid var(--line);padding:2px 9px}
+.wdone:hover{color:var(--cyan);border-color:var(--cyan)}
 .who b{font-weight:600;font-size:14.5px;color:#fff}
 .who .age{font-family:var(--mono);font-size:12px;color:var(--mute);text-align:right}
 .who p{grid-column:1/-1;font-size:13px;color:var(--mute);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -209,6 +212,12 @@ a.who:hover b{color:var(--cyan)}
 .ctrl .meta{display:flex;gap:12px;font-size:11.5px}
 .timers{display:flex;gap:6px}
 .timer{font-family:var(--mono);font-size:12px;color:var(--amber);border:1px solid rgba(255,181,71,.35);padding:1px 8px;border-radius:999px}
+/* shortcuts overlay */
+.keys{position:fixed;inset:auto 26px 56px auto;z-index:45;background:rgba(2,10,14,.96);border:1px solid var(--line);padding:16px 20px;min-width:300px}
+.keys h3{font-size:13px;color:var(--cyan);font-weight:600;margin-bottom:10px;letter-spacing:.04em}
+.keys dl{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:13px}
+.keys dt{font-family:var(--mono);color:var(--ice)}
+.keys dd{color:var(--mute)}
 /* typed commands */
 .ask{display:flex;width:100%;max-width:56ch;margin-top:4px;gap:8px}
 .ask input{flex:1;font:inherit;font-size:14px;color:var(--ice);background:rgba(0,0,0,.4);border:1px solid var(--line);
@@ -284,6 +293,11 @@ a.who:hover b{color:var(--cyan)}
 </head>
 <body>
 <div id="boot" aria-hidden="true"><pre id="bootlog"></pre></div>
+<div class="keys" id="keys" hidden role="dialog" aria-label="Keyboard shortcuts">
+  <h3>Shortcuts</h3>
+  <dl><dt>Space</dt><dd>Read the briefing / stop</dd><dt>/</dt><dd>Type to Arthur</dd><dt>L</dt><dd>Listen for 10 minutes</dd>
+  <dt>R</dt><dd>Rescan everything</dd><dt>Right ⌥ (hold)</dt><dd>Talk, from any app</dd><dt>?</dt><dd>This list</dd><dt>Esc</dt><dd>Close</dd></dl>
+</div>
 
 <div class="app">
   <header class="top">
@@ -440,7 +454,7 @@ function render(){
   renderSchedule(br.schedule_notes || []);
 
   // waiting
-  const w = br.waiting_on_you || [];
+  const w = (br.waiting_on_you || []).filter(x => !done['p:' + waitTitle(x)]);
   $('#waitN').textContent = w.length;
   $('#wait').innerHTML = w.length ? w.map(x => {
     const it = B.index[(x.source_ids||[])[0]] || {};
@@ -448,7 +462,7 @@ function render(){
     const tag = href ? 'a' : 'div';
     return `<${tag} class="who" ${href ? `href="${esc(href)}" target="_blank" rel="noopener"` : ''}>
       <b>${esc(x.who)} <span class="src" style="margin-left:6px">${(SRC[it.source]||{}).label || ''}</span></b>
-      <span class="age">${it.time ? ago(it.time) : ''}</span><p>${esc(x.summary)}</p></${tag}>${replyBtn(x.source_ids) ? `<div style="margin:-2px 0 8px">${replyBtn(x.source_ids)}</div>` : ''}`;
+      <span class="age">${it.time ? ago(it.time) : ''}</span><p>${esc(x.summary)}</p></${tag}><div class="wactions">${replyBtn(x.source_ids)}<button class="wdone" data-wdone="${esc(waitTitle(x))}" data-ids="${esc((x.source_ids||[]).join(','))}" title="Handled — don't bring this up again">Done</button></div>`;
   }).join('') : `<p class="empty">Nobody is waiting on a reply.</p>`;
 
   // fyi
@@ -459,6 +473,8 @@ function render(){
   setTranscript(br.spoken_briefing || '');
   renderNodes(Object.fromEntries(Object.entries(B.sources||{}).map(([k,v]) => [k, v.status])));
 }
+
+function waitTitle(x){ return `${x.who} — ${x.summary}`.slice(0, 140); }
 
 function renderSchedule(notes){
   const ev = B.calendar || [];
@@ -774,14 +790,16 @@ function renderDone(){
     ...done.map(d => ({at: d.at, html: `<li class="mine"><span>${esc(d.title)}</span><button class="undo" data-undo="${esc(d.title)}">Undo</button></li>`})),
     ...did.map(a => ({at: a.at, html: `<li><span>${DID[a.kind]} ${esc(a.to || a.title || a.label || '')}</span><time>${new Date(a.at).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}).toLowerCase()}</time><small>by Arthur</small></li>`})),
   ].sort((a, b) => (b.at || '').localeCompare(a.at || ''));
-  $('#done').innerHTML = items.map(i => i.html).join('');
+  const html = items.map(i => i.html).join('');
+  if ($('#done').dataset.h !== html){ $('#done').innerHTML = html; $('#done').dataset.h = html; }  // only redraw on change
 }
 
 function renderMemory(){
   const m = OV.memory || [];
   $('#memPanel').hidden = !m.length;
   $('#memN').textContent = m.length;
-  $('#mem').innerHTML = m.map(f => `<li><span>${esc(f)}</span><button class="undo" data-forget="${esc(f)}" title="Archive this memory">Forget</button></li>`).join('');
+  const mh = m.map(f => `<li><span>${esc(f)}</span><button class="undo" data-forget="${esc(f)}" title="Archive this memory">Forget</button></li>`).join('');
+  if ($('#mem').dataset.h !== mh){ $('#mem').innerHTML = mh; $('#mem').dataset.h = mh; }
 }
 
 function renderTabs(){
@@ -818,6 +836,11 @@ $('#askForm').addEventListener('submit', async e => {
 });
 
 document.addEventListener('click', async e => {
+  const wd = e.target.closest('[data-wdone]');
+  if (wd){ const key = 'p:' + wd.dataset.wdone; done[key] = true;
+    await fetch('/api/done', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({key, done: true, source_ids: (wd.dataset.ids || '').split(',').filter(Boolean)})});
+    render(); loadOverview(); return; }
   const ans = e.target.closest('[data-answer]');
   if (ans){ const r = await fetch('/api/confirm', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({answer: ans.dataset.answer})});
     if (r.status === 423) $('#confirmQ').textContent = 'Your Mac is locked — unlock it to approve.';
@@ -830,6 +853,7 @@ document.addEventListener('click', async e => {
   if (u){ await fetch('/api/undone', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title: u.dataset.undo})});
     const card = [...document.querySelectorAll('.task')].find(c => c.dataset.key === 'p:' + u.dataset.undo);
     if (card) card.classList.remove('done');
+    done['p:' + u.dataset.undo] = false; render();
     loadOverview(); return; }
   const f = e.target.closest('[data-forget]');
   if (f){ await fetch('/api/do/forget', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({args:{query: f.dataset.forget}})});
@@ -846,6 +870,8 @@ $('#pri').addEventListener('click', async e => {
 $('#speakBtn').onclick = brief;
 $('#scanBtn').onclick = rescan;
 addEventListener('keydown', e => {
+  if (e.key === 'Escape'){ $('#keys').hidden = true; if (e.target.closest('input')) e.target.blur(); return; }
+  if (e.key === '?' && !e.target.closest('input,textarea')){ $('#keys').hidden = !$('#keys').hidden; return; }
   if (e.key === '/' && !e.target.closest('input,textarea')){ e.preventDefault(); $('#askInput').focus(); return; }
   if (e.target.closest('input,textarea,button')) return;
   if (e.code === 'Space'){ e.preventDefault(); brief(); }

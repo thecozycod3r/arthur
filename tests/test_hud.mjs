@@ -7,6 +7,7 @@ page.on('pageerror', e => errors.push('pageerror: ' + e.message));
 page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
 await page.goto('http://localhost:8730/?noboot=1'); await page.waitForTimeout(3000);
 const r = {};
+const cleanup = [];  // anything this test ticks is un-ticked at the end no matter what
 r.title = await page.locator('.mark b').innerText();
 r.tasks = await page.locator('.task').count();
 r.waiting = await page.locator('.who').count();
@@ -50,6 +51,24 @@ if (await page.locator('.task').count()) {
   r.undoRemovesFromDone = !(await page.locator('#done').innerText()).includes(title);
   r.undoUnticksCard = !(await card.evaluate(c => c.classList.contains('done')));
 }
+try {
+// waiting row: Done hides it, shows in Done today, undo brings it back
+if (await page.locator('[data-wdone]').count()) {
+  const before = await page.locator('.who').count();
+  const t = await page.locator('[data-wdone]').first().getAttribute('data-wdone');
+  cleanup.push(t);
+  await page.locator('[data-wdone]').first().click(); await page.waitForTimeout(2500);
+  r.waitDoneHides = (await page.locator('.who').count()) === before - 1;
+  r.waitDoneInDoneList = (await page.locator('#done').innerText()).includes(t.slice(0, 20));
+  const undo = page.locator(`#done [data-undo="${t.replace(/"/g, '\\"')}"]`);
+  if (await undo.count()) await undo.click();
+  await page.waitForTimeout(2500);
+  r.waitUndoRestores = (await page.locator('.who').count()) === before;
+}
+} catch (e) { r.waitError = String(e).slice(0, 200); }
+// shortcuts overlay
+await page.keyboard.press('?'); r.helpOpens = await page.locator('#keys').isVisible();
+await page.keyboard.press('Escape'); r.helpCloses = !(await page.locator('#keys').isVisible());
 await page.locator('[data-reply]').first().click().catch(() => {});
 await page.locator('.reply textarea').type('r l ').catch(() => {});
 r.typingShortcutsIgnored = !(await page.locator('#scanBtn').isDisabled());
@@ -59,6 +78,7 @@ for (const w of [1280, 900, 400]) {
   r['overflow_' + w] = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 2);
 }
 await page.setViewportSize({ width: 1600, height: 980 }); await page.waitForTimeout(300);
+for (const t of cleanup) await page.request.post('http://localhost:8730/api/undone', { data: { title: t } }).catch(() => {});
 await page.screenshot({ path: process.argv[2] });
 r.errors = errors;
 console.log(JSON.stringify(r, null, 2));
