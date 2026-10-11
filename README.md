@@ -121,7 +121,7 @@ counts are compared before and after).
 | Suite | What it covers | Result |
 |---|---|---|
 | Brain | 47 spoken commands → correct action, recipient, dates, refusals | **47 / 47** |
-| Skills | memory, reminders, timers, music, calls, new email/iMessage, calendar create/move, evening wrap-up, voiceprint, done-rule | **38 / 38** |
+| Skills | memory, reminders, timers, music, calls, new email/iMessage, calendar create/move, evening wrap-up, voiceprint, spoken one-word answers, done-rule | **42 / 42** |
 | Security | no-token / wrong-token / DNS-rebinding / cross-origin / LAN, file modes, lock gate, a stranger's "yes", prompt injection | **20 / 20** |
 | Server | every endpoint + refusal paths | **21 / 21** |
 | Flow | wake → transcription → decision → action → voice (injected audio) | **10 / 10** |
@@ -132,7 +132,7 @@ counts are compared before and after).
 | Dashboard edge cases | fresh install, server down, **XSS payloads in messages**, a 60-task day | **4 / 4 clean** |
 | Typed commands | real browser: ask → answer, approval card → cancel | **pass** |
 | Routines | morning / evening jobs: scan while locked, stay silent, brief after unlock (`tests/test_routines.sh`) | **pass** |
-| Ears | wake word on 10 synthetic voices (+ noise), look-alike phrases, transcription WER, yes/no parsing | **80/80 recall · 4.5 % WER · 23/23** |
+| Ears | wake word on 10 synthetic voices (+ noise), look-alike phrases, transcription WER, yes/no parsing | **80/80 recall · 3.4 % WER · 23/23** |
 
 Bugs these tests caught and fixed along the way: a fallback briefing crash on messages with no text, a blind
 `Return` keystroke that could land in another app, a whisper "double-check" that rejected the owner's real voice
@@ -158,7 +158,8 @@ Requires the [Claude Code CLI](https://claude.com/claude-code) logged in, WhatsA
 [docs/SETUP.md](docs/SETUP.md).
 
 **Cost:** ₹0 / $0 beyond an existing Claude subscription — ~7k tokens per briefing, ~10k per voice command.
-**Footprint:** ~135 MB RAM idle, ~3.5 GB disk (mostly speech models).
+**Footprint:** ~300 MB RAM idle (server ~63 MB; the voice runs in a helper process that's shut down after 10 idle
+minutes so its memory really returns to macOS), ~3.5 GB disk (mostly speech models).
 
 ---
 
