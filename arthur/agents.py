@@ -28,8 +28,8 @@ def open_session(project: str, prompt: str) -> None:
     cfg = config.load()
     prompt = prompt + "\n\n(Started by voice: don't delete anything without asking me first in this session.)"
     cmd = f"cd {shlex.quote(project)} && {shlex.quote(cfg['claude_bin'])} {shlex.quote(prompt)}"
-    script = f'tell application "Terminal"\n activate\n do script {json.dumps(cmd)}\nend tell'
-    subprocess.run(["osascript", "-e", script], check=True)
+    script = 'on run argv\n tell application "Terminal"\n  activate\n  do script (item 1 of argv)\n end tell\nend run'
+    subprocess.run(["osascript", "-e", script, cmd], check=True)  # argv: prompts with ’ or — broke json-quoted AppleScript
 
 
 def start_task(project: str, prompt: str, on_done=None) -> str:

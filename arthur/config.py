@@ -78,7 +78,16 @@ def read_json(path: Path, default=None):
 
 
 def write_json(path: Path, obj) -> None:
+    """Atomic and private (0600). Each writer gets its own temp file, so the server, listener and menu bar
+    writing the same file at once can't trip over a shared .tmp."""
+    import os
+    import tempfile
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(obj, indent=2, default=str))
-    tmp.replace(path)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps(obj, indent=2, default=str))
+        os.replace(tmp, path)
+    except BaseException:
+        os.unlink(tmp)
+        raise

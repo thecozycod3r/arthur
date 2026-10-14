@@ -96,9 +96,10 @@ class Menu(rumps.App):
         self.pause_item = rumps.MenuItem("Pause listening", callback=self.toggle_pause)
         self.u5 = rumps.MenuItem("Claude session: waiting for first reading")
         self.menu = [
+            rumps.MenuItem("Open dashboard", callback=self.open_hud, key="d"),  # first: the thing you want most
+            None,
             self.status, self.u5, None,
             rumps.MenuItem("Listen for 10 minutes", callback=lambda _: (config.DATA / "ears_wake").touch()),
-            rumps.MenuItem("Open dashboard", callback=self.open_hud),
             rumps.MenuItem("Brief me", callback=lambda _: self.post("/api/speak")),
             rumps.MenuItem("Stop talking", callback=lambda _: self.post("/api/stop")),
             rumps.MenuItem("Rescan everything", callback=lambda _: self.post("/api/refresh")),
@@ -119,7 +120,7 @@ class Menu(rumps.App):
             self.u5.title = f"Claude session: {p5}% used{_when(u['five_hour'].get('resets'))}"
         self.title = ICONS[s] + pct
         self.status.title = TEXT[s]
-        self.pause_item.title = "Resume listening" if s == "paused" else "Pause listening"
+        self.pause_item.title = "Resume listening" if PAUSE.exists() else "Pause listening"  # locked ≠ paused
 
     def post(self, path):
         try:

@@ -749,7 +749,7 @@ const ACT = {whatsapp_send:'WhatsApp', slack_reply:'Slack', email_reply:'email',
   imessage_new:'iMessage', call:'call', reminder_add:'reminder', timer_set:'timer', event_create:'calendar', event_move:'calendar',
   claude_task:'Claude task', claude_session:'Claude session', drive_find:'Drive', remember:'memory', forget:'memory', rescan:'rescan', music:'music', mark_done:'done'};
 const DID = {reminder:'Reminder', call:'Called', email_sent:'Emailed', email_drafted:'Drafted email to',
-  imessage_sent:'Texted', event_created:'Added to calendar', event_moved:'Moved'};
+  imessage_sent:'Texted', whatsapp_sent:'WhatsApp to', slack_sent:'Slack reply to', event_created:'Added to calendar', event_moved:'Moved'};
 
 async function loadOverview(){
   try { OV = await (await fetch('/api/overview')).json(); } catch { return; }

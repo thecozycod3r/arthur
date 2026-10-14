@@ -195,7 +195,11 @@ def decide(heard: str, on_speech=None, history: list | None = None, followup: bo
            "--system-prompt", system, "--json-schema", json.dumps(SCHEMA)]
     out, rc = None, 1
     if on_speech is None:
-        p = subprocess.run(cmd + ["--output-format", "json"], input=prompt, capture_output=True, text=True, timeout=90, cwd="/tmp")
+        try:
+            p = subprocess.run(cmd + ["--output-format", "json"], input=prompt, capture_output=True, text=True,
+                               timeout=90, cwd="/tmp")
+        except subprocess.TimeoutExpired:
+            return {"action": "answer", "speech": "My apologies, sir, that took too long. Try me again."}
         rc = p.returncode
         try:
             out = json.loads(p.stdout or "{}").get("structured_output")
@@ -204,6 +208,9 @@ def decide(heard: str, on_speech=None, history: list | None = None, followup: bo
     else:
         p = subprocess.Popen(cmd + ["--output-format", "stream-json", "--include-partial-messages", "--verbose"],
                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, cwd="/tmp")
+        import threading
+        watchdog = threading.Timer(90, p.kill)  # a hung CLI must not pin this thread (and a claude process) forever
+        watchdog.start()
         p.stdin.write(prompt)
         p.stdin.close()
         buf = ""
@@ -221,7 +228,8 @@ def decide(heard: str, on_speech=None, history: list | None = None, followup: bo
                 save_usage(e.get("rate_limit_info") or {})
             elif e.get("type") == "result":
                 out = e.get("structured_output")
-        rc = p.wait(timeout=90)
+        rc = p.wait()
+        watchdog.cancel()
     if rc != 0 or not out:
         return {"action": "answer", "speech": "My apologies, sir, I couldn't process that just now."}
     if out.get("action") in ("claude_session", "claude_task"):

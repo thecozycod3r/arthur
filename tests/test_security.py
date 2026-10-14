@@ -83,7 +83,7 @@ ears.Ears.__init__(e)
 stranger_yes = T.load16(T.say_clip("Yes, send it.", "Daniel", 18001))
 e.record = lambda **kw: stranger_yes
 e.speak = lambda *a, **k: None
-check("a stranger saying 'yes' cannot approve a send", e.ask_yes("test", "test") == "no")
+check("a stranger saying 'yes' cannot approve a send", e.ask_yes("test", "test") in ("no", "rejected"))
 
 # ---------- prompt injection ----------
 orig = commands._context

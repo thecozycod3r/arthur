@@ -261,7 +261,7 @@ class Ears:
     def speak(self, text: str, wait=False):
         self.said = (getattr(self, "said", "") + " " + text).strip()
         try:
-            r = requests.post(f"{self.base}/api/speak", json={"text": text}, headers=config.api_headers(), timeout=60).json()
+            requests.post(f"{self.base}/api/speak", json={"text": text}, headers=config.api_headers(), timeout=60)
         except requests.RequestException:
             return
         if wait:
@@ -366,7 +366,11 @@ class Ears:
         except Exception as e:  # noqa: BLE001 — a broken voiceprint must not lock you out
             log.warning("voiceprint error: %s", e)
             return True
-        ok = s is None or s >= config.load().get("voiceprint_threshold", 0.30) or not config.load().get("voiceprint", True)
+        cfg = config.load()
+        # a short "yes" carries less voice than a full command, so approvals use a lower bar
+        # (other voices saying "yes, send it" score ≤0.15; the owner's short clips mostly ≥0.4)
+        bar = cfg.get("voiceprint_approval_threshold", 0.20) if what == "approval" else cfg.get("voiceprint_threshold", 0.30)
+        ok = s is None or s >= bar or not cfg.get("voiceprint", True)
         log.info("voiceprint %s: %s (%.2f)", what, "you" if ok else "NOT you — ignored", s if s is not None else -1)
         return ok
 
@@ -465,12 +469,17 @@ class Ears:
         Typed commands are approved with the dashboard's buttons instead."""
         if getattr(self, "typed", False):
             return self.ask_on_screen(heard, what)
-        self._drain()
-        subprocess.Popen(["/usr/bin/afplay", CHIME])
-        state("confirm", heard, what)
-        audio = self.record(max_s=6, start_timeout=5)
-        if not self.voice_ok(audio, "approval"):
-            return "no"  # someone else can't approve sending on your behalf
+        for attempt in range(2):
+            self._drain()
+            subprocess.Popen(["/usr/bin/afplay", CHIME])
+            state("confirm", heard, what)
+            audio = self.record(max_s=6, start_timeout=5)
+            if self.voice_ok(audio, "approval"):
+                break
+            if attempt == 0:  # say so, rather than quietly treating it as a no
+                self.speak("Sorry sir, I didn't recognise your voice. Say yes once more.", wait=True)
+        else:
+            return "rejected"  # someone else can't approve sending on your behalf
         answer = self.transcribe(audio)
         log.info("confirm: %s", answer)
         return classify_answer(answer)
@@ -523,6 +532,16 @@ class Ears:
     def confirm_and_run(self, d: dict, heard: str):
         act, ids = d["action"], d.get("source_ids") or []
         self.pending_action = act
+        if act in ("slack_reply", "email_reply", "imessage_reply") and not ids:
+            return self.speak("Which message should I reply to, sir?")
+        if act in ("slack_reply", "email_reply", "imessage_reply") and not d.get("reply_text"):
+            return self.speak("What would you like me to say?")
+        if act in ("event_create", "event_move") and not d.get("when"):
+            return self.speak("When should it be, sir?")
+        if act == "event_move" and not d.get("event_id"):
+            return self.speak("Which event should I move?")
+        if act in ("claude_session", "claude_task") and not d.get("prompt"):
+            return self.speak("What should Claude do, sir?")
         if act in ("call", "imessage_new", "email_new"):
             if not d.get("to"):
                 return self.speak("Who should I contact?")
@@ -564,6 +583,9 @@ class Ears:
         if act == "email_reply" and ans == "draft":
             r = self.post("/api/email/reply", {"id": ids[0], "text": d["reply_text"], "send": False})
             return self.speak("It's in your drafts, sir." if r.get("ok") else f"Couldn't save it: {r.get('error')}.")
+        if ans == "rejected":
+            return self.speak("I still couldn't confirm it was you, so I haven't sent it. You can type the request "
+                              "on the dashboard and approve it there.")
         if ans != "yes":
             return self.speak("Very well, I'll leave it.")
         if act == "slack_reply":
@@ -576,9 +598,11 @@ class Ears:
                 return self.speak("Sent, sir.")
             if r.get("ok"):
                 return self.speak("I've pressed send, sir, but couldn't confirm it went through. Worth a glance at WhatsApp.")
-            if r.get("typed"):
+            if r.get("typed") and "Accessibility" in str(r.get("error")):
                 return self.speak("It's typed in WhatsApp, sir, but I need Accessibility permission to press send. "
                                   "Just press enter for now.")
+            if r.get("typed"):
+                return self.speak(f"It's typed in WhatsApp but I didn't press send, sir: {r.get('error')}.")
         elif act == "call":
             r = self.post("/api/do/call", {"args": {"to": d["to"]}})
             return self.speak("Ringing now, sir." if r.get("ok") else f"I couldn't place the call: {r.get('error')}.")
@@ -594,7 +618,7 @@ class Ears:
             r = self.post("/api/do/event_move", {"args": {"event_id": d.get("event_id", ""), "start": d.get("when"),
                           "minutes": d.get("minutes")}})
             if r.get("ok"):
-                return self.speak(f"Moved, sir.")
+                return self.speak("Moved, sir.")
         elif act == "imessage_reply":
             r = self.post("/api/imessage/send", {"id": ids[0], "text": d["reply_text"]})
         elif act == "claude_session":
@@ -690,6 +714,8 @@ class Ears:
 
     def wake_requested(self) -> bool:
         """Hold right ⌥, the menu's "Listen for 10 minutes", or the morning/evening briefing wakes him."""
+        if self.ptt_pressed and LOCKED.exists():
+            self.ptt_pressed = False  # not while the Mac is locked
         if self.ptt_pressed:
             return True
         if WAKE.exists():
@@ -736,7 +762,8 @@ class Ears:
                         state("idle")
                     if self.ptt_pressed:
                         self.ptt_pressed = False
-                        self.run_command(ptt=True)
+                        if not LOCKED.exists():
+                            self.run_command(ptt=True)
                         continue
                     if ASK.exists():
                         self.take_typed()

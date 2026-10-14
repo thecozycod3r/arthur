@@ -140,7 +140,7 @@ def _engine():
 
 def _cache_path(text: str) -> Path:
     cfg = config.load()
-    voice, fx, speed = cfg.get("kokoro_voice", "bm_george"), cfg.get("voice_fx", "jarvis"), cfg.get("voice_speed", 1.0)
+    voice, fx, speed = cfg.get("kokoro_voice", "bm_george"), cfg.get("voice_fx", "arthur"), cfg.get("voice_speed", 1.0)
     intensity = cfg.get("voice_fx_intensity", 1.0)
     return CACHE / (hashlib.sha1(f"{voice}|{fx}|{intensity}|{speed}|{text}".encode()).hexdigest()[:16] + ".wav")
 
@@ -241,8 +241,8 @@ class SpeechJob:
                 break
             try:
                 self.ready.put(render_via_worker(s))
-            except Exception:  # noqa: BLE001
-                self.ready.put(None)
+            except Exception:  # noqa: BLE001 — voice helper broke: say it in the system voice rather than skip it
+                self.ready.put(("say", s))
         self.ready.put("END")
 
     def _play(self):
@@ -255,7 +255,11 @@ class SpeechJob:
                 break
             if wav is None:
                 continue
-            self.proc = subprocess.Popen(["/usr/bin/afplay", str(wav)])
+            if isinstance(wav, tuple):
+                self.proc = subprocess.Popen(["/usr/bin/say", "-v", config.load().get("voice", "Daniel"), "-r", "182", wav[1]],
+                                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                self.proc = subprocess.Popen(["/usr/bin/afplay", str(wav)])
             self.proc.wait()
         self.done = True
 

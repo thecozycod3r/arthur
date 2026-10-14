@@ -168,14 +168,15 @@ def fallback(cfg: dict, collected: dict) -> dict:
         return s
 
     ranked = sorted(items, key=score, reverse=True)
-    pri = [{"title": i["title"][:80], "why": f"{i['source']} · {i['from'][:40]}", "action": "Open and respond",
+    pri = [{"title": (i.get("title") or i.get("from") or "")[:80], "why": f"{i['source']} · {(i.get('from') or '')[:40]}", "action": "Open and respond",
             "urgency": "high" if score(i) >= 5 else "medium", "source_ids": [i["id"]]}
            for i in ranked[:6] if score(i) > 1]
-    waiting = [{"who": i["from"][:40], "summary": (((i["text"] or "").splitlines() or [""])[-1])[:120], "source_ids": [i["id"]]}
+    waiting = [{"who": (i.get("from") or "")[:40], "summary": (((i["text"] or "").splitlines() or [""])[-1])[:120], "source_ids": [i["id"]]}
                for i in items if "awaiting-reply" in i.get("flags", [])][:8]
     events = collected.get("calendar", {}).get("items", [])
     first = next((e for e in events if not e.get("all_day")), None)
-    speech = f"Good morning, {cfg['user_name']}. My analysis engine is offline, so this is the short version. "
+    daypart = "morning" if datetime.now().hour < 12 else "afternoon" if datetime.now().hour < 17 else "evening"
+    speech = f"Good {daypart}, {cfg['user_name']}. My analysis engine is offline, so this is the short version. "
     if first:
         speech += f"Your first meeting is {first['title']} at {datetime.fromisoformat(first['time']).strftime('%-I:%M %p')}. "
     speech += f"I've flagged {len(pri)} items and {len(waiting)} people waiting on you."

@@ -46,11 +46,24 @@ def enroll(paths: list[str] | None = None) -> int:
     return len(vs)
 
 
+def speech_only(audio: np.ndarray) -> np.ndarray:
+    """Just the spoken parts. Silence, the chime and room noise around a short "yes" drown the voice otherwise
+    (12 Oct: the owner's real "yes" scored 0.04 / 0.25 on the whole recording and sends were refused)."""
+    from . import hearing
+    try:
+        spans = hearing.speech_spans(audio, 200)
+    except Exception:  # noqa: BLE001
+        return audio
+    if not spans:
+        return audio
+    return np.concatenate([audio[max(0, s["start"] - 800): s["end"] + 800] for s in spans])
+
+
 def score(audio: np.ndarray) -> float | None:
     """Cosine similarity to your voiceprint (≈1 = you). None if it can't judge (too short / not enrolled)."""
     if not PRINT.exists():
         return None
-    v = embed(audio)
+    v = embed(speech_only(audio))
     return None if v is None else float(np.dot(v, np.load(PRINT)))
 
 

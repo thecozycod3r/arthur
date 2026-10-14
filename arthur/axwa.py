@@ -2,7 +2,7 @@
 No keystrokes are ever sent, so nothing can land in another app. Needs Accessibility for Arthur's python."""
 import time
 
-from AppKit import NSRunningApplication, NSWorkspace
+from AppKit import NSRunningApplication
 from ApplicationServices import (AXIsProcessTrusted, AXUIElementCopyAttributeValue, AXUIElementCreateApplication,
                                  AXUIElementPerformAction, AXUIElementSetAttributeValue)
 

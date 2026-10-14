@@ -30,11 +30,11 @@ def _brief_inputs() -> dict:
     br = b.get("brief", {})
     today = datetime.now().date().isoformat()
     tomorrow = (datetime.now() + timedelta(days=1)).date().isoformat()
-    handled = [k for k, v in (config.read_json(pipeline.HANDLED, {}) or {}).items() if str(v).startswith(today)]
-    idx = b.get("index") or {}
     return {
         "done_by_arthur_today": [a for a in actions.actions_today() if a.get("kind") != "timer"],
-        "ticked_off_today": [idx.get(i, {}).get("title") or i for i in handled],
+        # titles, not raw ids: ticked items are no longer in the briefing's index
+        "ticked_off_today": [t["title"] for t in (config.read_json(pipeline.TOPICS, []) or [])
+                             if str(t.get("at", "")).startswith(today)],
         "still_waiting": br.get("waiting_on_you", []),
         "open_priorities": [{k: p.get(k) for k in ("title", "action", "urgency")} for p in br.get("priorities", [])],
         "tomorrow": [{k: e.get(k) for k in ("title", "time", "end", "location", "attendees")}
@@ -51,7 +51,10 @@ def compose() -> dict:
                         "--system-prompt", system, "--json-schema", json.dumps(SCHEMA)],
                        input="Today's data (JSON):\n" + json.dumps(_brief_inputs(), default=str),
                        capture_output=True, text=True, timeout=300, cwd="/tmp")
-    out = json.loads(p.stdout or "{}").get("structured_output")
+    try:
+        out = json.loads(p.stdout or "{}").get("structured_output")
+    except json.JSONDecodeError:
+        out = None
     if not out:
         raise RuntimeError(f"evening compose failed: {(p.stderr or p.stdout)[-200:]}")
     out["generated_at"] = datetime.now().isoformat()
@@ -61,7 +64,15 @@ def compose() -> dict:
 
 def run():
     pipeline.safe_run()  # fresh scan so "still waiting" is current
-    out = compose()
+    try:
+        out = compose()
+    except Exception as e:  # noqa: BLE001 — Claude down shouldn't mean silence at 22:00
+        log.error("evening compose failed: %s", e)
+        n = len((config.read_json(pipeline.BRIEFING, {}) or {}).get("brief", {}).get("waiting_on_you", []))
+        out = {"headline": "Evening wrap-up", "generated_at": datetime.now().isoformat(),
+               "spoken": f"Good evening, sir. I couldn't put together the full wrap-up tonight. "
+                         f"{n or 'Nothing'} {'thing is' if n == 1 else 'things are'} still waiting on you; "
+                         "the dashboard has the details."}
     locked = config.DATA / "screen_locked"
     t0 = time.time()
     while locked.exists() and time.time() - t0 < 3 * 3600:  # say it when he's back at the Mac
@@ -70,7 +81,8 @@ def run():
         log.info("evening wrap-up skipped: Mac stayed locked")
         return
     cfg = config.load()
-    subprocess.run(["osascript", "-e", f'display notification {json.dumps(out["headline"])} with title "Arthur — evening wrap-up"'])
+    subprocess.run(["osascript", "-e", 'on run argv\n display notification (item 1 of argv) with title "Arthur — evening wrap-up"\nend run',
+                    out["headline"]])  # argv, not string-building: headlines with "—" or curly quotes broke it
     requests.post(f"http://127.0.0.1:{cfg['port']}/api/speak", json={"text": out["spoken"]},
                   headers=config.api_headers(), timeout=30)
     (config.DATA / "ears_wake").touch()  # listen for 10 minutes so you can respond

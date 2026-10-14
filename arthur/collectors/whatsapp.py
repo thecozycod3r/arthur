@@ -41,6 +41,21 @@ def _names(con) -> dict:
     return names
 
 
+def my_ids() -> set[str]:
+    """Your own WhatsApp ids (privacy-ID digits, plus phone if set in config) — what an @-mention of you contains."""
+    import plistlib
+    ids = set()
+    try:
+        p = WA_DIR / "Library/Preferences/group.net.whatsapp.WhatsApp.shared.plist"
+        d = plistlib.loads(p.read_bytes())
+        for k in ("lid", "lidd"):
+            if isinstance(d.get(k), str):
+                ids.add(d[k].split("@")[0].split(":")[0])
+    except (OSError, plistlib.InvalidFileException, ValueError):
+        pass
+    return ids
+
+
 def collect(cfg, since: datetime) -> dict:
     w = cfg["whatsapp"]
     if not w.get("enabled"):
@@ -50,7 +65,7 @@ def collect(cfg, since: datetime) -> dict:
     try:
         con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True, timeout=5)
     except sqlite3.Error as e:
-        return error(f"cannot open DB ({e}) — grant Full Disk Access to Jarvis's python")
+        return error(f"cannot open DB ({e}) — grant Full Disk Access to Arthur's python")
     try:
         cutoff = since.astimezone(timezone.utc).timestamp() - APPLE_EPOCH
         now_apple = datetime.now(timezone.utc).timestamp() - APPLE_EPOCH
@@ -75,7 +90,10 @@ def collect(cfg, since: datetime) -> dict:
     finally:
         con.close()
 
-    chats = defaultdict(lambda: {"msgs": [], "last_from_me": False, "incoming": 0})
+    import re
+    me = my_ids() | {str(x).lstrip("+") for x in [w.get("my_number")] if x}
+    tag = re.compile(r"@(" + "|".join(map(re.escape, me)) + r")\b") if me else None
+    chats = defaultdict(lambda: {"msgs": [], "last_from_me": False, "incoming": 0, "tagged": False, "tag_after_me": False})
     for (from_me, mdate, text, mtype, push, sid, partner, jid, stype, unread, archived, member_jid) in rows:
         if mtype in SKIP_TYPES:
             continue
@@ -86,22 +104,31 @@ def collect(cfg, since: datetime) -> dict:
         c["last"] = mdate
         if from_me:
             c["msgs"].append(("You", text or MEDIA.get(mtype, "[media]")))
+            c["tag_after_me"] = False
             continue
         c["incoming"] += 1
+        if stype == 1 and tag and text and tag.search(text):
+            c["tagged"] = c["tag_after_me"] = True
+            c["tag_msg"] = (names.get(member_jid, "Someone"), text)
         who = names.get(member_jid, "Someone") if stype == 1 else (partner or "")
         c["msgs"].append((who, text or MEDIA.get(mtype, "[media]")))
 
-    items, skipped_muted = [], 0
+    items, skipped_muted, skipped_groups = [], 0, 0
     ranked = sorted(chats.items(), key=lambda kv: kv[1].get("last", 0), reverse=True)
     for sid, c in ranked:
         if c["incoming"] == 0:
             continue
-        if c["group"] and c["muted"] and w.get("skip_muted_groups", True) and c["unread"] == 0:
+        if c["group"] and not c["tagged"] and w.get("groups_only_when_tagged", True):
+            skipped_groups += 1  # group chatter is ignored unless someone @-mentions you
+            continue
+        if c["group"] and c["muted"] and not c["tagged"] and w.get("skip_muted_groups", True) and c["unread"] == 0:
             skipped_muted += 1
             continue
         if len(items) >= w.get("max_chats", 40):
             break
         tail = c["msgs"][-w.get("msgs_per_chat", 8):]
+        if c.get("tag_msg") and c["tag_msg"] not in tail:
+            tail = [c["tag_msg"], ("", "…"), *tail[-5:]]  # always show the message that tagged you
         flags = []
         if c["unread"]:
             flags.append("unread")
@@ -109,6 +136,10 @@ def collect(cfg, since: datetime) -> dict:
             flags.append("awaiting-reply")
         if c["group"]:
             flags.append("group")
+        if c["tagged"]:
+            flags.append("mention")
+            if c["tag_after_me"]:
+                flags.append("awaiting-reply")  # tagged, and you haven't said anything in the group since
         if c["muted"]:
             flags.append("muted")
         items.append({
@@ -118,7 +149,8 @@ def collect(cfg, since: datetime) -> dict:
             "kind": "group" if c["group"] else "chat",
             "from": c["name"],
             "title": c["name"],
-            "text": "\n".join(f"{w_}: {t}"[:300] if w_ else t[:300] for w_, t in tail),
+            "text": "\n".join(f"{w_}: {t}"[:300] if w_ else t[:300] for w_, t in
+                              ((w_, tag.sub("@you", t) if tag else t) for w_, t in tail)),
             "time": datetime.fromtimestamp(c["last"] + APPLE_EPOCH).astimezone().isoformat(),
             "link": f"whatsapp://send?phone={c['jid'].split('@')[0]}" if not c["group"] else "whatsapp://",
             "flags": flags,
@@ -131,6 +163,7 @@ def collect(cfg, since: datetime) -> dict:
         "chats": len(chats),
         "unread": sum(c.get("unread", 0) for c in chats.values()),
         "skipped_muted": skipped_muted,
+        "skipped_groups": skipped_groups,
     })
 
 

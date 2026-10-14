@@ -104,6 +104,8 @@ def _arm(t: dict):
 
 
 def set_timer(seconds: int, label: str) -> dict:
+    if int(seconds) <= 0:
+        return {"ok": False, "error": "I didn't catch how long"}
     t = {"id": f"t{int(time.time() * 1000)}", "label": label or "your", "due": time.time() + int(seconds)}
     timers = (config.read_json(TIMERS, []) or []) + [t]
     config.write_json(TIMERS, timers)

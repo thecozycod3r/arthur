@@ -12,7 +12,7 @@ log = logging.getLogger("arthur")
 STATUS = config.DATA / "status.json"
 BRIEFING = config.DATA / "briefing.json"
 HANDLED = config.DATA / "handled.json"
-SCAN_TIMEOUT_S = 90  # one stuck channel can't hold up the briefing longer than this  # source ids you've ticked off; kept out of future briefings
+SCAN_TIMEOUT_S = 90  # one stuck channel can't hold up the briefing longer than this
 
 SOURCES = {
     "gmail": google.gmail,
@@ -63,7 +63,7 @@ def run() -> dict:
         try:
             collected[k] = f.result(timeout=max(1, deadline - time.time()))
         except TimeoutError:
-            hint = " — grant Full Disk Access to Jarvis's python (see SETUP.md)" if k == "whatsapp" else ""
+            hint = " — grant Full Disk Access to Arthur's python (see SETUP.md)" if k == "whatsapp" else ""
             collected[k] = {"status": "error", "detail": f"timed out{hint}", "items": [], "stats": {}}
         except Exception as e:  # noqa: BLE001
             collected[k] = {"status": "error", "detail": str(e)[:200], "items": [], "stats": {}}

@@ -68,7 +68,8 @@ threading.Thread(target=_janitor, daemon=True).start()
 
 
 def _timer_done(label: str):
-    subprocess.run(["osascript", "-e", f'display notification "{label} timer is done" with title "Arthur" sound name "Glass"'])
+    subprocess.run(["osascript", "-e", 'on run argv\n display notification (item 1 of argv) with title "Arthur" sound name "Glass"\nend run',
+                    f"{label} timer is done"])
     speak(Speech(text=f"Sir, your {label} timer is done." if label and label != "your" else "Sir, your timer is done."))
 
 
@@ -129,7 +130,7 @@ def speak(body: Speech):
         b = config.read_json(pipeline.BRIEFING) or {}
         text = b.get("brief", {}).get("spoken_briefing", "No briefing yet.")
     _say, dur = voice.speak(text, stream=body.stream, after=prev if isinstance(prev, voice.SpeechJob) else None)
-    _queue.append(_say)
+    _queue[:] = [j for j in _queue if j.poll() is None] + [_say]  # forget finished jobs
     _speech.update(started=time.time(), duration=dur)
     return {"speaking": True, "duration": dur}
 
@@ -182,7 +183,7 @@ def handled(body: Handled):
     for i in body.ids:  # "mark Happy as done" by voice counts like ticking it on screen
         if i in idx:
             topics.append({"title": f"{idx[i].get('from', '')}: {idx[i].get('title', '')}".strip(": "),
-                           "at": datetime.now().isoformat(timespec="seconds")})
+                           "at": datetime.now().isoformat(timespec="seconds"), "ids": [i]})
     config.write_json(pipeline.TOPICS, topics)
     return {"ok": True}
 
@@ -210,8 +211,11 @@ def slack_send(body: SlackReply):
         return JSONResponse({"ok": False, "error": "empty reply"}, status_code=400)
     try:
         # DMs continue the conversation; channel mentions get a threaded reply
-        return slack.send(config.load(), meta["workspace"], meta["channel"], body.text.strip(),
-                          None if meta.get("dm") else (meta.get("thread_ts") or meta.get("ts")))
+        r = slack.send(config.load(), meta["workspace"], meta["channel"], body.text.strip(),
+                       None if meta.get("dm") else (meta.get("thread_ts") or meta.get("ts")))
+        if r.get("ok"):
+            actions.log_action("slack_sent", to=it.get("from"), where=it.get("title"))
+        return r
     except RuntimeError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=502)
 
@@ -231,7 +235,9 @@ def email_reply(body: Compose):
     if it.get("source") != "gmail" or not meta.get("msg"):
         return JSONResponse({"ok": False, "error": "not a Gmail message"}, status_code=400)
     try:
-        return google.reply(meta["label"], meta["msg"], body.text.strip(), send=body.send)
+        r = google.reply(meta["label"], meta["msg"], body.text.strip(), send=body.send)
+        actions.log_action("email_sent" if body.send else "email_drafted", to=r.get("to"), subject=it.get("title"))
+        return r
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": str(e)[:200]}, status_code=502)
 
@@ -246,6 +252,7 @@ def imessage_send(body: Compose):
         return JSONResponse({"ok": False, "error": "only one-to-one iMessage chats can be replied to"}, status_code=400)
     try:
         imessage.send(meta["handle"], body.text.strip())
+        actions.log_action("imessage_sent", to=it.get("from") or it.get("title"))
         return {"ok": True}
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": str(e)[:200]}, status_code=502)
@@ -305,6 +312,8 @@ def whatsapp_send(body: WaSend):
     try:
         r = {**whatsapp.send(t["phone"], body.text.strip(), t.get("lid")), "name": t["name"]}
         logging.getLogger("arthur").info("whatsapp send -> %s", {k: v for k, v in r.items() if k != "name"})
+        if r.get("ok"):
+            actions.log_action("whatsapp_sent", to=t["name"], verified=bool(r.get("verified")))
         return r
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": str(e)[:200]}, status_code=502)

@@ -2,7 +2,6 @@
 
 Tokens: secrets/google_<label>.json. Link an account with:  python -m arthur auth google <label>
 """
-import json
 from datetime import datetime, timedelta
 
 from google.auth.transport.requests import AuthorizedSession, Request
