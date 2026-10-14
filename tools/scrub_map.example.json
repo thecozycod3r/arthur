@@ -1,0 +1,7 @@
+{
+  "replace": [["Jane Doe", "Pepper"], ["Acme Corp", "Hammer Industries"], ["com.jane.arthur", "com.arthur"], ["Jane", "Tony"]],
+  "quoted":  [["jane", "tony"]],
+  "words":   [["\\bACME\\b", "the firm"]],
+  "leak_names":   "jane|doe|acme",
+  "leak_secrets": "xox[pbae]-[0-9A-Za-z]|ya29\\.|GOCSPX|AIza[0-9A-Za-z_-]{20}|-----BEGIN|/Users/[a-z]"
+}
